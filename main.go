@@ -1,11 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"net"
 
-	"github.com/dustin/go-coap"
-	"github.com/pion/dtls"
+	"github.com/getcasa/sdk"
 )
 
 // Config define the casa plugin configuration
@@ -33,66 +32,30 @@ var Config = sdk.Configuration{
 }
 
 func main() {
-	addr := &net.UDPAddr{IP: net.ParseIP(""), Port: 5684}
-	config := &dtls.Config{
-		PSK: func(_ []byte) ([]byte, error) {
-			return []byte(""), nil
-		},
-		PSKIdentityHint: []byte(""), // For Tradfri Gateway the IdentityHint MUST be Client_identity
-		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
-	}
-
-	dtlsConn, err := dtls.Dial("udp", addr, config)
-	if err != nil {
-		panic(err)
-	}
-	defer dtlsConn.Close()
-
-	req := coap.Message{
-		Type:      coap.Confirmable,
-		Code:      coap.GET,
-		MessageID: 1,
-	} // This is a CoAP Ping, empty confirmable message
-
-	req.SetPathString("/15001")
-
-	data, err := req.MarshalBinary()
-	if err != nil {
-		panic(err)
-	}
-
-	_, err = dtlsConn.Write(data)
-	if err != nil {
-		panic(err)
-	}
-
-	resp := make([]byte, 2048)
-	dtlsConn.Read(resp)
-	msg, err := coap.ParseMessage(resp)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(msg.MessageID)
-	fmt.Println(msg.Type)
-	fmt.Println(msg.Code)
-	fmt.Println(msg.Token)
-	fmt.Println(string(msg.Payload))
+	OnStart([]byte("{}"))
 }
 
 type savedConfig struct {
 	Identity string
-	PSK string
+	PSK      string
 }
 
-// States is the global state of plugin
-var States []State
-var client http.Client
-var configPlugin []savedConfig
+// ConfigPlugin store the saved config
+var ConfigPlugin savedConfig
 
 // Init plugin config
 func Init() []byte {
 	res, _ := json.Marshal([]savedConfig{})
 	return res
+}
+
+// OnStart discover brdiges and create the global state
+func OnStart(config []byte) {
+	if err := json.Unmarshal(config, &ConfigPlugin); err != nil {
+		panic(err)
+	}
+
+	Connect()
 }
 
 // Discover return array of all found devices
@@ -104,7 +67,7 @@ func Discover() []sdk.DiscoveredDevice {
 
 // Params define actions parameters available
 type Params struct {
-	State  bool `json:"state"`
+	State bool `json:"state"`
 }
 
 // CallAction call functions from actions
@@ -133,4 +96,5 @@ func CallAction(physicalID string, name string, params []byte, config []byte) {
 
 // OnStop close connection
 func OnStop() {
+	Conn.Close()
 }
